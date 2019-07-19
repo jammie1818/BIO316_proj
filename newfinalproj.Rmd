@@ -1,0 +1,512 @@
+---
+title: "Investigating the Correlation between Coral Bleaching and Reef Habitation Over
+  Time (Final Project)"
+author: "Jamie MacKinnon"
+date: "7/18/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Coral Bleaching and fish distribution
+
+Explore how the distribution of moray eels, snapper fish, and angel fish are affected by coral bleaching in the Philippines. In years of heavy coral bleaching, how does the distribution of these species change? 
+
+In this document I will:
+
++ Load data
++ Filter data by years of high coral bleaching and low coral bleaching
++ Map the locations of three marine species for these years
++ Interpret the results to see how bleaching affects species distribution
+
+
+### Required Packages
+``` {r, message=FALSE}
+library(sf)
+library(rgdal)
+library(ggplot2)
+library(raster)
+library(spatial)
+library(dplyr)
+library(mapr)
+library(dismo)
+library(spocc)
+library(ENMeval)
+library(tibble)
+library(rinat)
+library(maptools)
+library(maps)
+library(png)
+library(grid)
+```
+
+
+
+### Years of Intense Coral Bleaching
+
+Since 1985, the National Oceanic and Atmospheric Association has been posting daily images of coral bleaching hotspots around the world.  
+
+Here is an example of one of the daily images produced, highlighting the Philippines.
+```{r, warning= FALSE, echo= FALSE}
+
+bleach2010 <- readPNG("bleaching2010.png")
+grid.raster(bleach2010)
+
+```
+
+
+
+### Visualizing Hotspot Trends 
+
+In this project, NOAA images were used to visually determine which recent years contained the most intense coral bleaching; those years were 2010, 2014, 2015, and 2019, as shown by the yellow coloration on the maps of the Philippines below. 
+
+```{r, echo= FALSE}
+
+highbleach <- readPNG("highbleaching.png")
+grid.raster(highbleach)
+
+```
+
+Years with much lower levels of bleaching were 2011, 2012, 2013, and 2018 (2016 had average bleaching). 
+```{r, echo= FALSE}
+
+lowbleach <- readPNG("lowbleaching.png")
+grid.raster(lowbleach)
+
+```
+
+Occurance data for the three species of interest will be filtered by years of high or low bleaching and plotted to compare the differences in species distribution.
+
+
+
+
+
+
+## Obtaining data from queries
+The Phillipines reef ecosystems are home to many organisms, but three of the most abundant are moray eels, snapper fish, and angel fish. Using the gbif and iNaturalist resources, occurance data can be obtained and later plotted. 
+
+
+# Moray eels a.k.a. *Gymnothorax thyesoideus*
+
+### Moray eels in High Bleaching Years (gbif data)
+Here the occ() function was used to acquire occurance data for moray eels from gbif. This information was filtered by years of high bleaching and converted to a data frame, only including those entries with viable longitude and latitude entries. Then the data frame was cleaned up to only include relevant columns, and filtered by location so that all entries were found in the Philippines.
+
+```{r, cache=TRUE, results="hide", message= FALSE}
+eels<- occ(query= 'Gymnothorax thyrsoideus', from= 'gbif', limit=2000)
+print(eels)
+view(eels)
+og_eels_df= as.data.frame(occ2df(eels$gbif))
+og_eels_df
+eels_df_yr<- filter(og_eels_df, year==2010 | year==2014 | year==2015 | year==2019)
+eels_df_yr
+eels_w_longlat<- subset(eels_df_yr, 
+                        !is.na(longitude) & 
+                          !is.na(latitude))
+eels_w_longlat
+eels_df<- select(eels_w_longlat, longitude, latitude, 
+                 basisOfRecord, species, dateIdentified, 
+                 stateProvince, country, year, 
+                 verbatimEventDate, verbatimLocality)
+eels_df
+moray_eels<- filter(eels_df, country=="Philippines")
+print(moray_eels)
+
+```
+
+### Moray eels/ High Bleaching (iNat data) 
+Similarly to the code chunk above, this code gathered eel occurance data from iNaturalist, and was filtered by years of high coral bleaching and location in the Philippines.
+
+```{r, cache=TRUE, results= "hide", message= FALSE}
+out_eels <- occ(query = 'Gymnothorax thyrsoideus', from = "inat", limit=2000)
+inat_out_eels <- get_inat_obs(query = 'Gymnothorax thyrsoideus')
+inat_eels_yr<- subset(inat_out_eels, observed_on>=2010 & observed_on<=2011 | 
+                        observed_on>=2014 & observed_on<= 2015 | 
+                        observed_on>=2015 & observed_on<= 2016 | 
+                        observed_on>=2019 & observed_on<= 2020)
+inat_eels_yr
+moray_eel = subset(inat_eels_yr, latitude >= 9 & latitude <= 15 
+                   & longitude>= 120 & longitude <= 124)
+moray_eel
+morayeel<- select(moray_eel, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(morayeel)
+
+```
+
+
+### Combining HB data to make table of longitude and latitude
+This code takes the cleaned up data frames from gbif and inat results and combines them into one table containing the latitudes and longitudes of each documented eel occurance (eel_points).
+
+```{r, echo=FALSE}
+condensed_eel_gbif<- select(moray_eels, species, longitude, latitude)
+
+new_eel_inat<-rename(morayeel, species="scientific_name")
+
+condensed_eel_inat<- select(new_eel_inat, species, longitude, latitude)
+
+all_eel_data<- bind_rows(condensed_eel_gbif, condensed_eel_inat)
+
+eel_points<- select(all_eel_data, longitude, latitude)
+
+eel_points
+```
+
+### Plotting Moray eel Distribution for Years of High Bleaching
+The table of coordinates was then plotted against a cropped world map in order to visualize where moray eels were located during years of high coral bleaching.
+
+```{r, cache= TRUE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= eel_points, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(eel_points$longitude), max(eel_points$longitude))) +
+  scale_y_continuous(limits = c(min(eel_points$latitude), max(eel_points$latitude)))
+
+```
+
+
+
+### Moray eels Low Bleaching
+The code above was then adjusted to fit years of low coral bleaching (everything was the same except the years used) and the results are shown below.
+
+```{r, cache=TRUE, results="hide", message= FALSE, echo=FALSE}
+eels<- occ(query= 'Gymnothorax thyrsoideus', from= 'gbif', limit=2000)
+print(eels)
+view(eels)
+og_eels_df= as.data.frame(occ2df(eels$gbif))
+og_eels_df
+eels_df_low<- filter(og_eels_df, year==2011| year==2012 | year==2013 | year==2018)
+eels_df_low
+eels_w_longlat_low<- subset(eels_df_low, 
+                        !is.na(longitude) & 
+                          !is.na(latitude))
+eels_w_longlat_low
+eels_low_df<- select(eels_w_longlat_low, longitude, latitude, 
+                 basisOfRecord, species, dateIdentified, 
+                 stateProvince, country, year, 
+                 verbatimEventDate, verbatimLocality)
+eels_low_df
+moray_eels_low<- filter(eels_low_df, country=="Philippines")
+print(moray_eels_low)
+
+```
+
+```{r, cache=TRUE, echo=FALSE, results= "hide", message= FALSE, warning=FALSE}
+out_eels <- occ(query = 'Gymnothorax thyrsoideus', from = "inat")
+inat_out_eels <- get_inat_obs(query = 'Gymnothorax thyrsoideus')
+inat_eels_yr_low<- subset(inat_out_eels, observed_on>=2011 & observed_on<=2012 | 
+                        observed_on>=2012 & observed_on<= 2013 | 
+                        observed_on>=2013 & observed_on<= 2014 | 
+                        observed_on>=2018 & observed_on<= 2019)
+inat_eels_yr_low
+moray_eel_low = subset(inat_eels_yr_low, latitude >= 9 & latitude <= 15 
+                    & longitude>= 120 & longitude <= 124)
+morayeel_low<- select(moray_eel_low, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(morayeel_low)
+```
+
+```{r, echo=FALSE}
+condensed_eel_gbif_low<- select(moray_eels_low, species, longitude, latitude)
+
+new_eel_inat_low<-rename(morayeel_low, species="scientific_name")
+
+condensed_eel_inat_low<- select(new_eel_inat_low, species, longitude, latitude)
+
+all_eel_data_low<- bind_rows(condensed_eel_gbif_low, condensed_eel_inat_low)
+
+eel_points_low<- select(all_eel_data_low, longitude, latitude)
+
+eel_points_low
+```
+
+```{r, cache= TRUE, echo=FALSE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= eel_points_low, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(eel_points_low$longitude), max(eel_points_low$longitude))) +
+  scale_y_continuous(limits = c(min(eel_points_low$latitude), max(eel_points_low$latitude)))
+
+```
+
+
+
+
+Next, the same code was tweaked to search for, filter, and plot data for Snapper fish.The following was produced.
+
+# Snapper fish a.k.a. Lutjanus 
+
+```{r, cache=TRUE, results="hide", message= FALSE, echo=FALSE}
+lutjanus<- occ(query= 'Lutjanus', from= 'gbif', limit= 2000)
+print(lutjanus)
+view(lutjanus)
+og_lutjanus_df= as.data.frame(occ2df(lutjanus$gbif))
+snapper_df_yr<- filter(og_lutjanus_df, year==2010 | year==2014 | year==2015 | year==2019)
+snapper_df_yr
+lut_w_longlat<- subset(snapper_df_yr, !is.na(longitude) & !is.na(latitude))
+
+
+lutjanus_df<- select(lut_w_longlat, longitude, latitude,  
+                     basisOfRecord, species, dateIdentified, 
+                     stateProvince, country, year, 
+                    verbatimEventDate, verbatimLocality)
+
+snapper<- filter(lutjanus_df, country=="Philippines")
+snapper
+
+
+```
+
+```{r, cache=TRUE, results= "hide", echo=FALSE, message=FALSE, warning=FALSE}
+out_snap <- occ(query = 'Lutjanus', from = "inat")
+inat_out_snap <- get_inat_obs(query = 'Lutjanus')
+inat_snap_yr<- subset(inat_out_snap, observed_on>=2010 & observed_on<=2011 | 
+                        observed_on>=2014 & observed_on<= 2015 | 
+                        observed_on>=2015 & observed_on<= 2016 | 
+                        observed_on>=2019 & observed_on<= 2020)
+inat_snap_yr
+snapp = subset(inat_snap_yr, latitude >= 9 & latitude <= 15 & longitude>= 120 & longitude <= 124)
+
+snappers<- select(snapp, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(snappers)
+```
+
+
+```{r, echo=FALSE}
+condensed_snap_gbif<- select(snapper, species, longitude, latitude)
+
+new_snap_inat<-rename(snappers, species="scientific_name")
+
+condensed_snap_inat<- select(new_snap_inat, species, longitude, latitude)
+
+all_snap_data<- bind_rows(condensed_snap_gbif, condensed_snap_inat)
+
+snap_points<- select(all_snap_data, longitude, latitude)
+snap_points
+
+```
+
+
+```{r, cache= TRUE, echo=FALSE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= snap_points, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(snap_points$longitude), max(snap_points$longitude))) +
+  scale_y_continuous(limits = c(min(snap_points$latitude), max(snap_points$latitude)))
+```
+
+
+
+### Snapper fish Low Bleaching
+```{r, cache=TRUE, results="hide", message= FALSE, echo=FALSE}
+lutjanus<- occ(query= 'Lutjanus', from= 'gbif', limit= 2000)
+print(lutjanus)
+view(lutjanus)
+og_lutjanus_df= as.data.frame(occ2df(lutjanus$gbif))
+snapper_df_yr_low<- filter(og_lutjanus_df, year==2011 | year==2012 | year==2013 | year==2018)
+snapper_df_yr_low
+lut_w_longlat_low<- subset(snapper_df_yr_low, !is.na(longitude) & !is.na(latitude))
+
+
+lutjanus_df_low<- select(lut_w_longlat_low, longitude, latitude,  
+                     basisOfRecord, species, dateIdentified, 
+                     stateProvince, country, year, 
+                    verbatimEventDate, verbatimLocality)
+
+snapper_low<- filter(lutjanus_df_low, country=="Philippines")
+snapper_low
+
+
+```
+
+
+```{r, cache=TRUE, results= "hide", echo=FALSE, message=FALSE, warning=FALSE}
+out_snap <- occ(query = 'Lutjanus', from = "inat")
+inat_out_snap <- get_inat_obs(query = 'Lutjanus')
+inat_snap_yr_low<- subset(inat_out_snap, observed_on>=2011 & observed_on<=2012 | 
+                        observed_on>=2012 & observed_on<= 2013 | 
+                        observed_on>=2013 & observed_on<= 2014 | 
+                        observed_on>=2018 & observed_on<= 2019)
+inat_snap_yr_low
+snapp_low = subset(inat_snap_yr_low, latitude >= 9 & latitude <= 15 & longitude>= 120 & longitude <= 124)
+
+snappers_low<- select(snapp_low, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(snappers_low)
+```
+
+```{r, echo=FALSE}
+condensed_snap_gbif_low<- select(snapper_low, species, longitude, latitude)
+
+new_snap_inat_low<-rename(snappers_low, species="scientific_name")
+
+condensed_snap_inat_low<- select(new_snap_inat_low, species, longitude, latitude)
+
+all_snap_data_low<- bind_rows(condensed_snap_gbif_low, condensed_snap_inat_low)
+
+snap_points_low<- select(all_snap_data_low, longitude, latitude)
+snap_points_low
+
+```
+
+```{r, cache= TRUE, echo=FALSE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= snap_points_low, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(snap_points_low$longitude), max(snap_points_low$longitude))) +
+  scale_y_continuous(limits = c(min(snap_points_low$latitude), max(snap_points_low$latitude)))
+```
+
+
+
+
+
+
+
+Lastly, the code was adjusted to reflect results for Angel fish.
+
+
+# Angel fish a.k.a. Pomacanthidae
+
+```{r, cache=TRUE, results="hide", message= FALSE, echo=FALSE}
+angel<- occ(query= 'Pomacanthidae', from= 'gbif', limit= 2000)
+print(angel)
+view(angel)
+og_angel_df= as.data.frame(occ2df(angel$gbif))
+angel_df_yr<- filter(og_angel_df, year==2010 | year==2014 | year==2015 | year==2019)
+ang_w_longlat<- subset(angel_df_yr, !is.na(longitude) & !is.na(latitude))
+
+
+angel_df<- select(ang_w_longlat, longitude, latitude,  
+                  basisOfRecord, species, dateIdentified, 
+                  stateProvince, country, year, 
+                  verbatimEventDate, verbatimLocality)
+
+angelfish<- filter(angel_df, country=="Philippines")
+angelfish
+
+
+```
+
+
+```{r, cache= TRUE, results= "hide", message= FALSE, echo=FALSE}
+out_ang <- occ(query = 'Pomacanthidae', from = "inat")
+inat_out_ang <- get_inat_obs(query = 'Pomacanthidae')
+inat_ang_yr<- subset(inat_out_ang, observed_on>=2010 & observed_on<=2011 | 
+                        observed_on>=2014 & observed_on<= 2015 | 
+                        observed_on>=2015 & observed_on<= 2016 | 
+                        observed_on>=2019 & observed_on<= 2020)
+inat_ang_yr
+
+angel_fish = subset(inat_ang_yr, latitude >= 9 & latitude <= 15 & longitude>= 120 & longitude <= 124)
+angelfishh <- select(angel_fish, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(angelfishh)
+
+```
+
+```{r, echo=FALSE}
+condensed_angel_gbif<- select(angelfish, species, longitude, latitude)
+
+new_angel_inat<-rename(angelfishh, species="scientific_name")
+
+condensed_angel_inat<- select(new_angel_inat, species, longitude, latitude)
+
+all_angel_data<- bind_rows(condensed_angel_gbif, condensed_angel_inat)
+
+angel_points<- select(all_angel_data, longitude, latitude)
+angel_points
+
+```
+
+
+
+```{r, cache= TRUE, echo=FALSE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= angel_points, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(angel_points$longitude), max(angel_points$longitude))) +
+  scale_y_continuous(limits = c(min(angel_points$latitude), max(angel_points$latitude)))
+```
+
+
+### Angel fish Low Bleaching 
+```{r, cache=TRUE, results="hide", message= FALSE, echo=FALSE}
+angel<- occ(query= 'Pomacanthidae', from= 'gbif', limit= 2000)
+print(angel)
+view(angel)
+og_angel_df= as.data.frame(occ2df(angel$gbif))
+angel_df_yr_low<- filter(og_angel_df, year==2011 | year==2012 | year==2013 | year==2018)
+ang_w_longlat_low<- subset(angel_df_yr_low, !is.na(longitude) & !is.na(latitude))
+
+
+angel_df_low<- select(ang_w_longlat_low, longitude, latitude,  
+                  basisOfRecord, species, dateIdentified, 
+                  stateProvince, country, year, 
+                  verbatimEventDate, verbatimLocality)
+
+angelfish_low<- filter(angel_df_low, country=="Philippines")
+angelfish_low
+
+
+```
+
+
+```{r, cache= TRUE, results= "hide", message= FALSE, echo=FALSE}
+out_ang <- occ(query = 'Pomacanthidae', from = "inat")
+inat_out_ang <- get_inat_obs(query = 'Pomacanthidae')
+inat_ang_yr_low<- subset(inat_out_ang, observed_on>=2011 & observed_on<=2012 | 
+                        observed_on>=2012 & observed_on<= 2013 | 
+                        observed_on>=2013 & observed_on<= 2014 | 
+                        observed_on>=2018 & observed_on<= 2019)
+inat_ang_yr_low
+
+angel_fish_low = subset(inat_ang_yr_low, latitude >= 9 & latitude <= 15 & longitude>= 120 & longitude <= 124)
+angelfishh_low <- select(angel_fish_low, scientific_name, observed_on, 
+                  latitude, longitude, place_guess)
+print(angelfishh_low)
+
+```
+
+```{r, echo=FALSE}
+condensed_angel_gbif_low<- select(angelfish_low, species, longitude, latitude)
+
+new_angel_inat_low<-rename(angelfishh_low, species="scientific_name")
+
+condensed_angel_inat_low<- select(new_angel_inat_low, species, longitude, latitude)
+
+all_angel_data_low<- bind_rows(condensed_angel_gbif_low, condensed_angel_inat_low)
+
+angel_points_low<- select(all_angel_data_low, longitude, latitude)
+angel_points_low
+
+```
+
+```{r, cache= TRUE, echo=FALSE}
+usmap = map_data("world")
+ggplot(data= usmap, aes(x=long, y=lat)) +
+  geom_polygon(aes(group=group),fill= "white", color= "black")+ 
+  geom_point(data= angel_points_low, aes(x=longitude, y=latitude), color= 'red')+ 
+  scale_x_continuous(limits = c(min(angel_points_low$longitude), max(angel_points_low$longitude))) +
+  scale_y_continuous(limits = c(min(angel_points_low$latitude), max(angel_points_low$latitude)))
+```
+
+## Results
+
++ For Moray eels, there did not seem to be much of a difference in the distribution data for the years of high coral bleaching versus those with less coral bleaching. They appeared to stay at around 121 degrees East and 13.5 degrees North, off the coast of Mindoro in the western Phillipines.
++ In years of high bleaching, snapper fish were scattered in the Lagonoy Gulf at around 123.5 degrees E, 9.2 degrees N. In years of low bleaching they were located prominently in a clump off the coast of Mondoro at 121 degrees E, 13.5 degrees N.
++ With high bleaching, angel fish were scattered in the Lagonoy Gulf at 123.3 deg E and 9.2 deg N. With low bleaching they were prominently found off the Mindoran Coast at 121 deg E, 13.5 deg N.
+This data shows that in the years with less bleaching, data points for all three organisms were found clumped together around 13.5 degrees North and 121 degrees East, off the Mindoro coast on the western part of the island.
+
+
+## Analysis/ Conclusion
+Overall, although these results are based off of a small sample size, and there was not much to be concluded about the Moray eels, one could argue that there is a trend of westward movement for both the Snapper fish and the Angel fish, at least.
+
+Looking at the NOAA's images of bleaching next to each other, it appears that in years with more coral bleaching, the areas most affected were on the Eastern and Northern parts of the Philippines. One of the most dramatic shifts in hotspot intensity occured from 2010, with lots of coral bleaching, to 2011, where there was practically none.  With the knowledge that bleaching kills coral, and consequently causes loss of habitat for many organisms, it makes sense that we see fewer data points on the eastern side of the island the year after a huge coral bleaching event. Angelfish feed on coral and live almost exclusively on reefs, so this loss of coral would most likely force them to migrate to a new location, and we see this in the clustering of angel fish near the western part of the Philippines in 2011. We see this same trend with Snapper fish, which are carnivorous, and feed on any fish smaller than they are. While they, too, may have moved due to loss of habitat, they most likely moved to follow the angelfish, a prominent food source. Moray eels are also carnivorous, so the migration of angel and snapper fish into the western part of the island was probably beneficial for them. However, more research would need to be done to discern whether the coral bleaching had any affect on the distribution of these eels. To gain a concrete understanding of the distribution of these organisms, much more data needs to be collected. Additionally, these conclusions are based off of trends on a map. There could be many factors leading to these changes in distribution, such as an increase in fishing or changes in the abundance of a different food source. However, the fact that areas with high coral bleaching events hosted fewer organisms in the following years is very telling.
